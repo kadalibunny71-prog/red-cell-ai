@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity, AlertCircle, ArrowRight, Bot, Building2, CalendarClock, Check,
   ChevronRight, ClipboardCheck, Droplets, Edit3, HeartHandshake,
-  Info, LogOut, MapPin, Menu, PackageCheck, Plus, Radio, RefreshCw,
-  Search, ShieldCheck, Sparkles, Trash2, Users, X
+  Info, LocateFixed, LogOut, MapPin, Menu, Navigation, PackageCheck, Plus, Radio, RefreshCw,
+  Search, ShieldCheck, Sparkles, Timer, Trash2, Truck, Users, X
 } from 'lucide-react';
 import { api, ApiError, sessionStore } from './api.js';
 
@@ -26,6 +26,17 @@ function formatDeadline(value) {
 }
 function displayName(user) { return user?.full_name || user?.fullName || 'Network member'; }
 function organization(user) { return user?.organization_name || user?.organizationName || ROLE_LABELS[user?.role] || 'Network member'; }
+const DELIVERY_STEPS = [
+  ['preparing', 'Preparing'], ['collected', 'Collected'], ['in_transit', 'In transit'], ['arrived', 'Arrived'], ['delivered', 'Delivered']
+];
+function deliveryLabel(status) { return DELIVERY_STEPS.find(([value]) => value === status)?.[1] || 'Not started'; }
+function formatDuration(start, end = new Date()) {
+  if (!start) return '—';
+  const minutes = Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 60000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60); const remainder = minutes % 60;
+  return `${hours}h${remainder ? ` ${remainder}m` : ''}`;
+}
 function normalizeItem(item) {
   return { ...item, requester: item.requester || null, acceptedByProfile: item.acceptedByProfile || null };
 }
@@ -55,7 +66,7 @@ function Toast({ toast, onDismiss }) {
 function AuthScreen({ onAuthenticated }) {
   const [mode, setMode] = useState('login');
   const [portal, setPortal] = useState('hospital');
-  const [form, setForm] = useState({ fullName: '', email: '', password: '', organizationName: '', role: 'hospital' });
+  const [form, setForm] = useState({ fullName: '', email: '', password: '', organizationName: '', contactPerson: '', phone: '', address: '', city: '', state: '', postalCode: '', registrationNumber: '', role: 'hospital' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const isSignUp = mode === 'signup';
@@ -82,7 +93,7 @@ function AuthScreen({ onAuthenticated }) {
     } finally { setSubmitting(false); }
   };
 
-  return <main className="relative min-h-screen overflow-hidden bg-slate-50 px-4 py-5 sm:p-8 lg:grid lg:grid-cols-2 lg:items-center lg:gap-12">
+  return <main className="relative min-h-screen overflow-x-hidden bg-slate-50 px-4 py-5 sm:p-8 lg:grid lg:grid-cols-2 lg:items-center lg:gap-12">
     <div className="pointer-events-none absolute -left-20 top-20 h-72 w-72 rounded-full bg-rose-200/45 blur-3xl" />
     <div className="pointer-events-none absolute right-0 top-0 h-96 w-96 rounded-full bg-sky-100 blur-3xl" />
     <section className="relative mx-auto hidden max-w-xl lg:block">
@@ -113,8 +124,12 @@ function AuthScreen({ onAuthenticated }) {
         </div>
         {error && <div className="mb-5 flex gap-2 rounded-xl border border-rose-100 bg-rose-50 p-3 text-sm font-medium text-rose-700"><AlertCircle className="mt-0.5 shrink-0" size={17} />{error}</div>}
         <form onSubmit={submit} className="space-y-4">
-          {isSignUp && <><div><label className="label">Full name</label><input className="field" required value={form.fullName} placeholder="Your name" onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></div>
-          <div><label className="label">Organisation</label><input className="field" required value={form.organizationName} placeholder={portal === 'hospital' ? 'e.g. City Care Hospital' : 'e.g. City Blood Bank'} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} /></div></>}
+          {isSignUp && <><div><label className="label">Your full name</label><input className="field" required value={form.fullName} placeholder="Your name" onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></div>
+          <div><label className="label">{portal === 'hospital' ? 'Hospital / clinic name' : 'Donor centre / blood bank name'}</label><input className="field" required value={form.organizationName} placeholder={portal === 'hospital' ? 'e.g. City Care Hospital' : 'e.g. City Blood Bank'} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} /></div>
+          <div className="grid gap-4 sm:grid-cols-2"><div><label className="label">Operational contact</label><input className="field" required value={form.contactPerson} placeholder="Coordinator name" onChange={(e) => setForm({ ...form, contactPerson: e.target.value })} /></div><div><label className="label">Contact number</label><input className="field" required type="tel" value={form.phone} placeholder="Primary phone" onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div></div>
+          <div><label className="label">Organisation address</label><input className="field" required value={form.address} placeholder="Street, area, building" onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+          <div className="grid gap-4 sm:grid-cols-3"><div><label className="label">City</label><input className="field" required value={form.city} placeholder="City" onChange={(e) => setForm({ ...form, city: e.target.value })} /></div><div><label className="label">State</label><input className="field" required value={form.state} placeholder="State" onChange={(e) => setForm({ ...form, state: e.target.value })} /></div><div><label className="label">Postal code</label><input className="field" required value={form.postalCode} placeholder="PIN / ZIP" onChange={(e) => setForm({ ...form, postalCode: e.target.value })} /></div></div>
+          <div><label className="label">{portal === 'hospital' ? 'Hospital registration / licence number' : 'Blood-bank registration / licence number'}</label><input className="field" required value={form.registrationNumber} placeholder="Registration or licence ID" onChange={(e) => setForm({ ...form, registrationNumber: e.target.value })} /></div></>}
           <div><label className="label">{portalInfo.label} email</label><input className="field" required type="email" autoComplete="email" value={form.email} placeholder="you@example.com" onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
           <div><label className="label">Password</label><input className="field" required minLength="8" type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} value={form.password} placeholder={isSignUp ? 'At least 8 characters' : 'Your password'} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
           <button disabled={submitting} className="btn-primary mt-2 w-full py-3">{submitting ? <RefreshCw className="animate-spin" size={18} /> : <portalInfo.Icon size={18} />}{submitting ? 'Please wait…' : isSignUp ? `Create ${portalInfo.short} account` : `Enter ${portalInfo.short} portal`}<ArrowRight size={17} /></button>
@@ -141,10 +156,11 @@ function StatusBadge({ status, urgency }) {
   return <span className={cn('status', critical && status === 'open' ? 'bg-rose-100 text-rose-700' : style)}><span className={cn('h-1.5 w-1.5 rounded-full', critical && status === 'open' ? 'bg-rose-500 animate-pulse' : 'bg-current opacity-70')} />{critical && status === 'open' ? 'Critical' : label}</span>;
 }
 
-function RequestCard({ item, user, onEdit, onDelete, onAccept, onDeliver, busy }) {
+function RequestCard({ item, user, onEdit, onDelete, onAccept, onDeliver, onTrack, busy }) {
   const mine = item.user_id === user.id;
   const canAccept = !mine && item.status === 'open' && user.role !== 'hospital';
   const canDeliver = mine && item.status === 'matched';
+  const canTrackDelivery = ['matched', 'delivered'].includes(item.status) && (mine || item.accepted_by === user.id);
   return <article className="card group flex flex-col overflow-hidden transition hover:-translate-y-0.5 hover:shadow-[0_20px_42px_-24px_rgba(15,23,42,.35)]">
     <div className={cn('h-1.5', item.urgency === 'critical' ? 'bg-rose-500' : item.urgency === 'urgent' ? 'bg-amber-400' : 'bg-sky-400')} />
     <div className="flex flex-1 flex-col p-5">
@@ -157,6 +173,7 @@ function RequestCard({ item, user, onEdit, onDelete, onAccept, onDeliver, busy }
           {mine && item.status !== 'delivered' && <button title="Edit request" onClick={() => onEdit(item)} className="btn-quiet !p-2"><Edit3 size={16} /></button>}
           {mine && <button title="Delete request" onClick={() => onDelete(item)} className="btn-quiet !p-2 hover:!bg-rose-50 hover:!text-rose-600"><Trash2 size={16} /></button>}
           {canAccept && <button disabled={busy} onClick={() => onAccept(item)} className="btn-primary !px-3 !py-2 text-xs"><HeartHandshake size={15} />Confirm</button>}
+          {canTrackDelivery && <button title="Track delivery" onClick={() => onTrack(item)} className="btn-secondary !p-2 text-rose-600"><Navigation size={16} /></button>}
           {canDeliver && <button disabled={busy} onClick={() => onDeliver(item)} className="btn-primary !px-3 !py-2 text-xs"><PackageCheck size={15} />Delivered</button>}
         </div>
       </div>
@@ -211,6 +228,64 @@ function RequestModal({ item, onClose, onSaved, toast }) {
   </div>;
 }
 
+
+function DeliveryTrackerModal({ item, onClose, onItemUpdated, toast }) {
+  const [tracking, setTracking] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    deliveryStatus: ['preparing', 'collected', 'in_transit', 'arrived'].includes(item.delivery_status) ? item.delivery_status : 'preparing',
+    location: item.delivery_last_location || '', eta: item.delivery_eta ? new Date(item.delivery_eta).toISOString().slice(0, 16) : '', note: ''
+  });
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try { setTracking(await api.getDelivery(item.id)); }
+    catch (err) { setError(err.message || 'Could not load delivery tracking.'); }
+    finally { setLoading(false); }
+  }, [item.id]);
+  useEffect(() => { load(); }, [load]);
+
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) { setError('Location access is not available in this browser. Enter an operational location manually.'); return; }
+    setError('');
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => setForm((current) => ({ ...current, location: `GPS: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}` })),
+      () => setError('Location permission was not granted. Enter an operational location manually.'),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+    );
+  };
+  const submit = async (event) => {
+    event.preventDefault(); setSaving(true); setError('');
+    try {
+      const result = await api.addDeliveryEvent(item.id, form);
+      setTracking((current) => ({ item: result.item, events: [...(current?.events || []), result.event] }));
+      onItemUpdated({ ...item, ...result.item });
+      setForm((current) => ({ ...current, location: result.item.delivery_last_location || current.location, eta: result.item.delivery_eta ? new Date(result.item.delivery_eta).toISOString().slice(0, 16) : current.eta, note: '' }));
+      toast('Private delivery update saved for the matched organisations.');
+    } catch (err) { setError(err.message || 'Could not save the delivery update.'); }
+    finally { setSaving(false); }
+  };
+
+  const current = tracking?.item || item;
+  const currentIndex = DELIVERY_STEPS.findIndex(([value]) => value === current.delivery_status);
+  const canUpdate = current.status === 'matched';
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/35 p-3 backdrop-blur-sm sm:p-6" role="dialog" aria-modal="true" aria-label="Delivery tracking">
+    <div className="card mx-auto my-2 max-w-3xl overflow-hidden sm:my-8"><div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-7"><div><p className="text-xs font-black uppercase tracking-widest text-rose-600">Private delivery tracking</p><h2 className="mt-0.5 text-xl font-black text-slate-900">{item.blood_group} {item.component}</h2></div><button onClick={onClose} className="btn-quiet !rounded-xl !p-2" aria-label="Close"><X size={20} /></button></div>
+      <div className="p-5 sm:p-7">{loading ? <div className="grid min-h-64 place-items-center"><RefreshCw className="animate-spin text-rose-600" size={24} /></div> : <>
+        <div className="rounded-2xl bg-slate-50 p-4 sm:p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-black text-slate-900">Current stage: <span className="text-rose-600">{deliveryLabel(current.delivery_status)}</span></p><p className="mt-1 text-sm text-slate-600">{current.delivery_last_location || 'No operational location shared yet.'}</p></div><span className="status bg-rose-50 text-rose-700"><Truck size={13} />{deliveryLabel(current.delivery_status)}</span></div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3"><div className="rounded-xl bg-white p-3"><p className="text-[11px] font-black uppercase tracking-wide text-slate-400">Matched</p><p className="mt-1 text-sm font-bold text-slate-700">{current.accepted_at ? formatDeadline(current.accepted_at) : '—'}</p></div><div className="rounded-xl bg-white p-3"><p className="text-[11px] font-black uppercase tracking-wide text-slate-400">Elapsed</p><p className="mt-1 flex items-center gap-1 text-sm font-bold text-slate-700"><Timer size={14} className="text-rose-500" />{formatDuration(current.accepted_at, current.delivered_at || new Date())}</p></div><div className="rounded-xl bg-white p-3"><p className="text-[11px] font-black uppercase tracking-wide text-slate-400">Estimated arrival</p><p className="mt-1 text-sm font-bold text-slate-700">{current.delivery_eta ? formatDeadline(current.delivery_eta) : 'Not shared'}</p></div></div>
+          <div className="mt-5 grid grid-cols-5 gap-1">{DELIVERY_STEPS.map(([value, label], index) => <div key={value} className="text-center"><div className={cn('mx-auto grid h-7 w-7 place-items-center rounded-full text-[10px] font-black', index <= currentIndex ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-500')}>{index < currentIndex ? <Check size={14} strokeWidth={3} /> : index + 1}</div><p className={cn('mt-1 text-[10px] font-bold leading-3', index <= currentIndex ? 'text-rose-700' : 'text-slate-400')}>{label}</p></div>)}</div>
+        </div>
+        <div className="mt-5 flex items-start gap-2 rounded-xl bg-sky-50 p-3 text-xs leading-5 text-sky-800"><Info size={15} className="mt-0.5 shrink-0" />Location sharing is optional and visible only to the hospital requester and matched donor centre. Share operational transport updates only; do not track or enter private home locations.</div>
+        {canUpdate && <form onSubmit={submit} className="mt-6 rounded-2xl border border-slate-200 p-4 sm:p-5"><div className="flex items-center justify-between gap-3"><div><h3 className="font-black text-slate-900">Add delivery update</h3><p className="mt-1 text-xs text-slate-500">The timestamp is recorded automatically.</p></div><Navigation className="text-rose-500" size={20} /></div><div className="mt-4 grid gap-4 sm:grid-cols-2"><div><label className="label">Current stage</label><select className="field" value={form.deliveryStatus} onChange={(e) => setForm({ ...form, deliveryStatus: e.target.value })}>{DELIVERY_STEPS.slice(0, 4).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div><div><label className="label">Estimated arrival <span className="normal-case tracking-normal text-slate-400">optional</span></label><input className="field" type="datetime-local" value={form.eta} onChange={(e) => setForm({ ...form, eta: e.target.value })} /></div></div><div className="mt-4"><div className="mb-1.5 flex items-center justify-between gap-3"><label className="label !mb-0">Operational location</label><button type="button" onClick={useCurrentLocation} className="inline-flex items-center gap-1 text-xs font-extrabold text-rose-600 hover:text-rose-700"><LocateFixed size={14} />Use my device location</button></div><input className="field" required value={form.location} placeholder="e.g. Blood bank dispatch desk, en route to hospital" onChange={(e) => setForm({ ...form, location: e.target.value })} /></div><div className="mt-4"><label className="label">Coordination note <span className="normal-case tracking-normal text-slate-400">optional</span></label><textarea className="field min-h-20 resize-y" value={form.note} maxLength="800" placeholder="Non-clinical handoff note for the matched organisation." onChange={(e) => setForm({ ...form, note: e.target.value })} /></div><div className="mt-4 flex justify-end"><button disabled={saving} className="btn-primary">{saving && <RefreshCw className="animate-spin" size={16} />}{saving ? 'Saving…' : 'Save private update'}</button></div></form>}
+        {error && <div className="mt-4 flex gap-2 rounded-xl bg-rose-50 p-3 text-sm text-rose-700"><AlertCircle className="shrink-0" size={17} />{error}</div>}
+        <div className="mt-6"><div className="flex items-center justify-between"><h3 className="font-black text-slate-900">Time-stamped handoffs</h3><button onClick={load} className="btn-quiet !px-2 !py-1 text-xs"><RefreshCw size={14} />Refresh</button></div><div className="mt-3 space-y-3">{tracking?.events?.length ? tracking.events.map((entry) => <div key={entry.id} className="flex gap-3 rounded-xl border border-slate-100 p-3"><div className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-rose-50 text-rose-600"><MapPin size={15} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center justify-between gap-1"><p className="text-sm font-extrabold text-slate-800">{deliveryLabel(entry.delivery_status)} <span className="font-medium text-slate-400">by {displayName(entry.actor)}</span></p><time className="text-[11px] font-semibold text-slate-400">{formatDeadline(entry.occurred_at)}</time></div>{entry.location && <p className="mt-1 text-xs font-semibold text-slate-600"><MapPin className="mr-1 inline text-slate-400" size={12} />{entry.location}</p>}{entry.eta && <p className="mt-1 text-xs text-slate-500">ETA: {formatDeadline(entry.eta)}</p>}{entry.note && <p className="mt-1 text-sm leading-5 text-slate-500">{entry.note}</p>}</div></div>) : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No private delivery updates have been shared yet.</p>}</div></div>
+      </>}</div>
+    </div>
+  </div>;
+}
+
 function Dashboard({ user, onLogout }) {
   const [items, setItems] = useState([]);
   const [stats, setStats] = useState({ open: 0, mine: 0, matched: 0 });
@@ -218,6 +293,7 @@ function Dashboard({ user, onLogout }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modalItem, setModalItem] = useState(undefined);
+  const [trackingItem, setTrackingItem] = useState(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [toastState, setToastState] = useState(null);
@@ -258,11 +334,12 @@ function Dashboard({ user, onLogout }) {
         <section className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3"><Metric icon={Radio} value={stats.open} label="Open on network" tone="rose" /><Metric icon={ClipboardCheck} value={stats.mine} label="Posted by you" tone="violet" /><Metric icon={HeartHandshake} value={stats.matched} label="Being coordinated" tone="emerald" /></section>
         <section className="mt-8"><div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[.15em] text-rose-600">Coordination feed</p><h2 className="mt-1 text-2xl font-black tracking-tight text-slate-900">{filter.mine ? 'My activity' : 'Live blood requests'}</h2></div><div className="grid grid-cols-2 gap-2 sm:flex"><select aria-label="Filter by status" className="field !py-2.5 text-sm" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}><option value="open">Open requests</option><option value="matched">Matched</option><option value="delivered">Delivered</option><option value="all">All statuses</option></select><select aria-label="Filter by blood group" className="field !py-2.5 text-sm" value={filter.bloodGroup} onChange={(e) => setFilter({ ...filter, bloodGroup: e.target.value })}><option value="">All groups</option>{BLOOD_GROUPS.map((group) => <option key={group} value={group}>{group}</option>)}</select></div></div>
           {error && <div className="mt-5 flex items-start justify-between gap-3 rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm text-rose-800"><div className="flex gap-2"><AlertCircle className="mt-0.5 shrink-0" size={17} />{error}</div><button onClick={() => refresh()} className="font-bold underline">Retry</button></div>}
-          {loading ? <div className="grid grid-cols-1 gap-4 pt-5 md:grid-cols-2 xl:grid-cols-3">{[1, 2, 3].map((n) => <div key={n} className="card h-72 animate-pulse bg-slate-100" />)}</div> : items.length ? <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{items.map((item) => <RequestCard key={item.id} item={item} user={user} busy={busyId === item.id} onEdit={setModalItem} onDelete={(x) => perform('delete', x)} onAccept={(x) => perform('accept', x)} onDeliver={(x) => perform('deliver', x)} />)}</div> : <div className="card mt-5 grid min-h-72 place-items-center p-8 text-center"><div><div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-slate-100 text-slate-400"><Search size={24} /></div><h3 className="mt-4 text-lg font-black text-slate-900">Nothing here yet</h3><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500">{filter.mine ? 'You have not posted any requests that match this view.' : 'There are no live requests matching these filters. Check back soon or post one.'}</p><button onClick={() => setModalItem(null)} className="btn-primary mt-5"><Plus size={17} />Post a request</button></div></div>}
+          {loading ? <div className="grid grid-cols-1 gap-4 pt-5 md:grid-cols-2 xl:grid-cols-3">{[1, 2, 3].map((n) => <div key={n} className="card h-72 animate-pulse bg-slate-100" />)}</div> : items.length ? <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">{items.map((item) => <RequestCard key={item.id} item={item} user={user} busy={busyId === item.id} onEdit={setModalItem} onDelete={(x) => perform('delete', x)} onAccept={(x) => perform('accept', x)} onDeliver={(x) => perform('deliver', x)} onTrack={setTrackingItem} />)}</div> : <div className="card mt-5 grid min-h-72 place-items-center p-8 text-center"><div><div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-slate-100 text-slate-400"><Search size={24} /></div><h3 className="mt-4 text-lg font-black text-slate-900">Nothing here yet</h3><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500">{filter.mine ? 'You have not posted any requests that match this view.' : 'There are no live requests matching these filters. Check back soon or post one.'}</p><button onClick={() => setModalItem(null)} className="btn-primary mt-5"><Plus size={17} />Post a request</button></div></div>}
         </section>
         <footer className="mt-10 border-t border-slate-200 py-6 text-xs leading-5 text-slate-500">red cell.ai is an operational coordination tool, not a replacement for hospital blood-bank verification, compatibility testing, emergency services, or clinical advice.</footer>
       </main></div>
     {modalItem !== undefined && <RequestModal item={modalItem || null} onClose={() => setModalItem(undefined)} onSaved={saveItem} toast={notify} />}
+    {trackingItem && <DeliveryTrackerModal item={trackingItem} onClose={() => setTrackingItem(null)} onItemUpdated={(updated) => { setTrackingItem(updated); setItems((current) => current.map((existing) => existing.id === updated.id ? { ...existing, ...updated } : existing)); }} toast={notify} />}
     <Toast toast={toastState} onDismiss={() => setToastState(null)} />
   </div>;
 }

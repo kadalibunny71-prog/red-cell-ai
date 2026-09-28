@@ -12,7 +12,14 @@ const registerSchema = z.object({
   fullName: z.string().trim().min(2, 'Please enter your full name.').max(100),
   email: z.string().trim().email('Please enter a valid email address.').max(254),
   password: z.string().min(8, 'Use at least 8 characters for your password.').max(128),
-  organizationName: z.string().trim().max(120).optional().or(z.literal('')),
+  organizationName: z.string().trim().min(2, 'Please enter the organisation name.').max(120),
+  contactPerson: z.string().trim().min(2, 'Please enter the operational contact name.').max(100),
+  phone: z.string().trim().regex(/^[0-9+()\-\s]{7,40}$/, 'Please enter a valid contact number.'),
+  address: z.string().trim().min(5, 'Please enter the organisation address.').max(250),
+  city: z.string().trim().min(2, 'Please enter the city.').max(100),
+  state: z.string().trim().min(2, 'Please enter the state or region.').max(100),
+  postalCode: z.string().trim().min(3, 'Please enter the postal code.').max(20),
+  registrationNumber: z.string().trim().min(3, 'Please enter the licence or registration number.').max(100),
   role: z.enum(['hospital', 'donor_center', 'donor'])
 });
 const loginSchema = z.object({
@@ -50,10 +57,17 @@ router.post('/register', asyncHandler(async (req, res) => {
   const { data: user, error: insertError } = await supabase.from('profiles').insert({
     email,
     full_name: input.fullName,
-    organization_name: input.organizationName || null,
+    organization_name: input.organizationName,
+    contact_person: input.contactPerson,
+    phone: input.phone,
+    address: input.address,
+    city: input.city,
+    state: input.state,
+    postal_code: input.postalCode,
+    registration_number: input.registrationNumber,
     role: input.role,
     password_hash: passwordHash
-  }).select('id, email, full_name, organization_name, role, created_at').single();
+  }).select('id, email, full_name, organization_name, contact_person, phone, address, city, state, postal_code, registration_number, role, created_at').single();
   if (insertError) {
     if (insertError.code === '23505') throw AppError('An account already exists for that email. Please sign in instead.', 409, 'EMAIL_IN_USE');
     throw AppError('We could not create your account. Please try again.', 503, 'DATABASE_UNAVAILABLE');

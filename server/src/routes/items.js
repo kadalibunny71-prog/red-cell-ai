@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { getSupabase } from '../services/supabase.js';
 import { asyncHandler, AppError } from '../utils/http.js';
+import { assertDeliveryParticipant, deliveryStatuses, serialiseDeliveryEvent } from '../utils/delivery.js';
 
 const router = express.Router();
 const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
@@ -21,10 +22,22 @@ const itemSchema = z.object({
   description: z.string().trim().max(2000).optional().or(z.literal('')),
   aiSummary: z.string().trim().max(2000).optional().or(z.literal(''))
 });
+const deliveryEventSchema = z.object({
+  deliveryStatus: z.enum(deliveryStatuses),
+  location: z.string().trim().min(2, 'Enter the current operational location or pickup point.').max(200),
+  eta: z.string().trim().max(40).optional().or(z.literal('')),
+  note: z.string().trim().max(800).optional().or(z.literal(''))
+});
+
+function parseDate(value, fieldLabel) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw AppError(`Please provide a valid ${fieldLabel}.`, 400, 'INVALID_DATE');
+  return date;
+}
 
 function toDatabase(input) {
-  const needed = input.neededBy ? new Date(input.neededBy) : null;
-  if (needed && Number.isNaN(needed.getTime())) throw AppError('Please provide a valid required-by date and time.', 400, 'INVALID_DATE');
+  const needed = parseDate(input.neededBy, 'required-by date and time');
   return {
     type: input.type,
     blood_group: input.bloodGroup,
@@ -60,6 +73,29 @@ function serialise(item) {
 }
 
 const feedSelect = `*, requester:profiles!items_user_id_fkey(id, full_name, organization_name, role), accepted_by_profile:profiles!items_accepted_by_fkey(id, full_name, organization_name, role)`;
+const deliveryEventSelect = `*, actor:profiles!delivery_events_actor_id_fkey(id, full_name, organization_name, role)`;
+
+async function getDeliveryItem(id) {
+  const { data, error } = await getSupabase().from('items')
+    .select('id, user_id, accepted_by, status, accepted_at, delivered_at, delivery_status, delivery_last_location, delivery_eta, delivery_updated_at, delivery_notes')
+    .eq('id', id).maybeSingle();
+  if (error) throw AppError('Could not load delivery tracking.', 503, 'DATABASE_UNAVAILABLE');
+  return data;
+}
+
+async function addDeliveryEvent({ itemId, actorId, deliveryStatus, location, note, eta }) {
+  const { data, error } = await getSupabase().from('delivery_events').insert({
+    item_id: itemId,
+    actor_id: actorId,
+    delivery_status: deliveryStatus,
+    location: location || null,
+    note: note || null,
+    eta: eta?.toISOString() || null
+  }).select(deliveryEventSelect).single();
+  if (error) throw AppError('Delivery status was saved, but its timeline entry could not be created. Please refresh and try again.', 503, 'DELIVERY_TIMELINE_ERROR');
+  return serialiseDeliveryEvent(data);
+}
+
 router.use(requireAuth);
 
 router.get('/', asyncHandler(async (req, res) => {
@@ -96,6 +132,34 @@ router.post('/', asyncHandler(async (req, res) => {
   res.status(201).json({ item: serialise(data) });
 }));
 
+// Private operational tracking is intentionally not included in the public request feed.
+router.get('/:id/delivery', asyncHandler(async (req, res) => {
+  const item = await getDeliveryItem(req.params.id);
+  assertDeliveryParticipant(item, req.user.id);
+  const { data: events, error } = await getSupabase().from('delivery_events').select(deliveryEventSelect)
+    .eq('item_id', item.id).order('occurred_at', { ascending: true });
+  if (error) throw AppError('Could not load the delivery timeline.', 503, 'DATABASE_UNAVAILABLE');
+  res.json({ item, events: (events || []).map(serialiseDeliveryEvent) });
+}));
+
+router.post('/:id/delivery/events', asyncHandler(async (req, res) => {
+  const input = deliveryEventSchema.parse(req.body);
+  const eta = parseDate(input.eta, 'estimated arrival time');
+  const item = await getDeliveryItem(req.params.id);
+  assertDeliveryParticipant(item, req.user.id);
+  const updatedAt = new Date();
+  const { data: updated, error } = await getSupabase().from('items').update({
+    delivery_status: input.deliveryStatus,
+    delivery_last_location: input.location,
+    delivery_eta: eta?.toISOString() || item.delivery_eta,
+    delivery_notes: input.note || item.delivery_notes,
+    delivery_updated_at: updatedAt.toISOString()
+  }).eq('id', item.id).select('id, user_id, accepted_by, status, accepted_at, delivered_at, delivery_status, delivery_last_location, delivery_eta, delivery_updated_at, delivery_notes').single();
+  if (error) throw AppError('Could not save the delivery update. Please try again.', 503, 'DATABASE_UNAVAILABLE');
+  const event = await addDeliveryEvent({ itemId: item.id, actorId: req.user.id, deliveryStatus: input.deliveryStatus, location: input.location, note: input.note, eta });
+  res.status(201).json({ item: updated, event });
+}));
+
 router.put('/:id', asyncHandler(async (req, res) => {
   const payload = toDatabase(itemSchema.parse(req.body));
   const { data: current, error: findError } = await getSupabase().from('items').select('id, user_id, status').eq('id', req.params.id).maybeSingle();
@@ -122,20 +186,24 @@ router.post('/:id/accept', asyncHandler(async (req, res) => {
   if (!item) throw AppError('This request no longer exists.', 404, 'NOT_FOUND');
   if (item.user_id === req.user.id) throw AppError('You cannot accept your own request.', 400, 'OWN_ITEM');
   if (item.status !== 'open') throw AppError('This request has already been actioned.', 409, 'ALREADY_ACTIONED');
+  const now = new Date();
   const { data, error } = await getSupabase().from('items').update({
-    status: 'matched', accepted_by: req.user.id, accepted_at: new Date().toISOString()
+    status: 'matched', accepted_by: req.user.id, accepted_at: now.toISOString(), delivery_status: 'preparing', delivery_updated_at: now.toISOString()
   }).eq('id', item.id).eq('status', 'open').is('accepted_by', null).select(feedSelect).maybeSingle();
   if (error) throw AppError('Could not confirm availability. Please try again.', 503, 'DATABASE_UNAVAILABLE');
   if (!data) throw AppError('Someone else just accepted this request.', 409, 'ALREADY_ACTIONED');
+  await addDeliveryEvent({ itemId: item.id, actorId: req.user.id, deliveryStatus: 'preparing', note: 'Availability confirmed. Preparing the requested component.' });
   res.json({ item: serialise(data) });
 }));
 
 router.post('/:id/deliver', asyncHandler(async (req, res) => {
+  const completedAt = new Date();
   const { data, error } = await getSupabase().from('items').update({
-    status: 'delivered', delivered_at: new Date().toISOString()
+    status: 'delivered', delivered_at: completedAt.toISOString(), delivery_status: 'delivered', delivery_updated_at: completedAt.toISOString()
   }).eq('id', req.params.id).eq('user_id', req.user.id).eq('status', 'matched').select(feedSelect).maybeSingle();
   if (error) throw AppError('Could not mark this as delivered. Please try again.', 503, 'DATABASE_UNAVAILABLE');
   if (!data) throw AppError('Only the requester can mark a matched request as delivered.', 409, 'DELIVERY_NOT_ALLOWED');
+  await addDeliveryEvent({ itemId: data.id, actorId: req.user.id, deliveryStatus: 'delivered', location: data.delivery_last_location, note: 'Hospital requester confirmed delivery.' });
   res.json({ item: serialise(data) });
 }));
 

@@ -50,6 +50,8 @@ export const api = {
   updateItem: (id, data) => request(`/api/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteItem: (id) => request(`/api/items/${id}`, { method: 'DELETE' }),
   acceptItem: (id) => request(`/api/items/${id}/accept`, { method: 'POST' }),
+  getDelivery: (id) => request(`/api/items/${id}/delivery`),
+  addDeliveryEvent: (id, data) => request(`/api/items/${id}/delivery/events`, { method: 'POST', body: JSON.stringify(data) }),
   deliverItem: (id) => request(`/api/items/${id}/deliver`, { method: 'POST' }),
   generateAI: (data) => request('/api/ai/generate', { method: 'POST', body: JSON.stringify(data) })
 };

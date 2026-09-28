@@ -19,7 +19,12 @@ export async function applySchema() {
   }
   if (!ref) throw new Error('Could not determine SUPABASE_PROJECT_REF from SUPABASE_URL.');
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const sql = await fs.readFile(path.resolve(here, '../../../supabase/001_redcell_schema.sql'), 'utf8');
+  const migrationsDirectory = path.resolve(here, '../../../supabase');
+  const migrationFiles = (await fs.readdir(migrationsDirectory))
+    .filter((file) => /^\d+_.+\.sql$/.test(file))
+    .sort();
+  if (!migrationFiles.length) throw new Error('No Supabase migration files were found.');
+  const sql = (await Promise.all(migrationFiles.map((file) => fs.readFile(path.join(migrationsDirectory, file), 'utf8')))).join('\n\n');
   const response = await fetch(`https://api.supabase.com/v1/projects/${encodeURIComponent(ref)}/database/query`, {
     method: 'POST',
     headers: {
