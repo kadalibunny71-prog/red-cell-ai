@@ -54,16 +54,27 @@ function Toast({ toast, onDismiss }) {
 
 function AuthScreen({ onAuthenticated }) {
   const [mode, setMode] = useState('login');
+  const [portal, setPortal] = useState('hospital');
   const [form, setForm] = useState({ fullName: '', email: '', password: '', organizationName: '', role: 'hospital' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const isSignUp = mode === 'signup';
+  const portalInfo = portal === 'hospital'
+    ? { label: 'Hospital portal', short: 'hospital', description: 'Post patient requests and track each coordination handoff.', Icon: Building2 }
+    : { label: 'Donor centre portal', short: 'donor centre', description: 'View live needs and confirm available blood components.', Icon: HeartHandshake };
 
+  const choosePortal = (nextPortal) => {
+    setPortal(nextPortal);
+    setForm((current) => ({ ...current, role: nextPortal }));
+    setError('');
+  };
   const submit = async (event) => {
     event.preventDefault();
     setSubmitting(true); setError('');
     try {
-      const result = isSignUp ? await api.register(form) : await api.login({ email: form.email, password: form.password });
+      const result = isSignUp
+        ? await api.register({ ...form, role: portal })
+        : await api.login({ email: form.email, password: form.password, portal });
       sessionStore.setToken(result.token);
       onAuthenticated(result.user);
     } catch (err) {
@@ -79,7 +90,7 @@ function AuthScreen({ onAuthenticated }) {
       <div className="mt-16">
         <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-rose-100 bg-white/80 px-3 py-1.5 text-xs font-extrabold uppercase tracking-wider text-rose-600 shadow-sm"><Radio size={14} className="animate-pulse" /> Live coordination network</div>
         <h1 className="max-w-lg text-5xl font-black leading-[1.08] tracking-tight text-slate-900">When every minute matters, <span className="text-rose-600">make the right connection.</span></h1>
-        <p className="mt-6 max-w-md text-lg leading-8 text-slate-600">A calmer, faster way for hospitals and donor centres to coordinate urgent blood requests.</p>
+        <p className="mt-6 max-w-md text-lg leading-8 text-slate-600">Dedicated workspaces for hospitals and donor centres to coordinate urgent blood requests.</p>
       </div>
       <div className="mt-12 grid max-w-lg grid-cols-3 gap-3">
         {[['Broadcast', 'to the network', Radio], ['Match', 'availability fast', HeartHandshake], ['Track', 'every handoff', ClipboardCheck]].map(([title, copy, Icon]) => <div key={title} className="glass rounded-2xl p-4">
@@ -92,21 +103,23 @@ function AuthScreen({ onAuthenticated }) {
     <section className="relative mx-auto w-full max-w-md lg:mx-0">
       <div className="mb-8 lg:hidden"><Brand /></div>
       <div className="card p-6 sm:p-8">
-        <div className="mb-7"><p className="text-sm font-bold text-rose-600">Welcome to the network</p><h2 className="mt-1 text-3xl font-black tracking-tight text-slate-900">{isSignUp ? 'Create your account' : 'Sign in securely'}</h2><p className="mt-2 text-sm leading-6 text-slate-500">{isSignUp ? 'Join verified coordination in a few quick steps.' : 'Pick up where your team left off.'}</p></div>
+        <div className="mb-6"><p className="text-sm font-bold text-rose-600">Choose your workspace</p><h2 className="mt-1 text-3xl font-black tracking-tight text-slate-900">{portalInfo.label}</h2><p className="mt-2 text-sm leading-6 text-slate-500">{portalInfo.description}</p></div>
+        <div className="mb-6 grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1.5" role="tablist" aria-label="Choose login section">
+          {[['hospital', 'Hospital', Building2], ['donor_center', 'Donor centre', HeartHandshake]].map(([value, label, Icon]) => <button key={value} type="button" role="tab" aria-selected={portal === value} onClick={() => choosePortal(value)} className={cn('flex items-center justify-center gap-2 rounded-xl px-2 py-3 text-xs font-extrabold transition sm:text-sm', portal === value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800')}><Icon size={16} className={portal === value ? 'text-rose-600' : ''} />{label}</button>)}
+        </div>
         <div className="mb-6 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
-          <button onClick={() => { setMode('login'); setError(''); }} className={cn('rounded-lg px-3 py-2 text-sm font-bold transition', !isSignUp ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500')}>Sign in</button>
-          <button onClick={() => { setMode('signup'); setError(''); }} className={cn('rounded-lg px-3 py-2 text-sm font-bold transition', isSignUp ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500')}>Create account</button>
+          <button type="button" onClick={() => { setMode('login'); setError(''); }} className={cn('rounded-lg px-3 py-2 text-sm font-bold transition', !isSignUp ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500')}>Sign in</button>
+          <button type="button" onClick={() => { setMode('signup'); setError(''); }} className={cn('rounded-lg px-3 py-2 text-sm font-bold transition', isSignUp ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500')}>Create account</button>
         </div>
         {error && <div className="mb-5 flex gap-2 rounded-xl border border-rose-100 bg-rose-50 p-3 text-sm font-medium text-rose-700"><AlertCircle className="mt-0.5 shrink-0" size={17} />{error}</div>}
         <form onSubmit={submit} className="space-y-4">
           {isSignUp && <><div><label className="label">Full name</label><input className="field" required value={form.fullName} placeholder="Your name" onChange={(e) => setForm({ ...form, fullName: e.target.value })} /></div>
-          <div><label className="label">I’m joining as</label><select className="field" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="hospital">Hospital / clinic</option><option value="donor_center">Donor centre / blood bank</option><option value="donor">Individual donor</option></select></div>
-          <div><label className="label">Organisation <span className="normal-case tracking-normal text-slate-400">optional</span></label><input className="field" value={form.organizationName} placeholder="e.g. City Care Hospital" onChange={(e) => setForm({ ...form, organizationName: e.target.value })} /></div></>}
-          <div><label className="label">Email address</label><input className="field" required type="email" autoComplete="email" value={form.email} placeholder="you@example.com" onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
+          <div><label className="label">Organisation</label><input className="field" required value={form.organizationName} placeholder={portal === 'hospital' ? 'e.g. City Care Hospital' : 'e.g. City Blood Bank'} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} /></div></>}
+          <div><label className="label">{portalInfo.label} email</label><input className="field" required type="email" autoComplete="email" value={form.email} placeholder="you@example.com" onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
           <div><label className="label">Password</label><input className="field" required minLength="8" type="password" autoComplete={isSignUp ? 'new-password' : 'current-password'} value={form.password} placeholder={isSignUp ? 'At least 8 characters' : 'Your password'} onChange={(e) => setForm({ ...form, password: e.target.value })} /></div>
-          <button disabled={submitting} className="btn-primary mt-2 w-full py-3">{submitting ? <RefreshCw className="animate-spin" size={18} /> : null}{submitting ? 'Please wait…' : isSignUp ? 'Join the network' : 'Sign in'}<ArrowRight size={17} /></button>
+          <button disabled={submitting} className="btn-primary mt-2 w-full py-3">{submitting ? <RefreshCw className="animate-spin" size={18} /> : <portalInfo.Icon size={18} />}{submitting ? 'Please wait…' : isSignUp ? `Create ${portalInfo.short} account` : `Enter ${portalInfo.short} portal`}<ArrowRight size={17} /></button>
         </form>
-        <p className="mt-6 text-center text-xs leading-5 text-slate-500">By continuing, you agree to use the network responsibly and follow all applicable local blood-bank procedures.</p>
+        <p className="mt-6 text-center text-xs leading-5 text-slate-500">Accounts are role-specific. Use the same section you selected when your account was created.</p>
       </div>
     </section>
   </main>;

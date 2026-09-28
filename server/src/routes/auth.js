@@ -17,7 +17,8 @@ const registerSchema = z.object({
 });
 const loginSchema = z.object({
   email: z.string().trim().email(),
-  password: z.string().min(1).max(128)
+  password: z.string().min(1).max(128),
+  portal: z.enum(['hospital', 'donor_center']).optional()
 });
 
 function setSessionCookie(res, token, expiresAt) {
@@ -69,6 +70,10 @@ router.post('/login', asyncHandler(async (req, res) => {
   if (error) throw AppError('Could not sign you in right now. Please try again.', 503, 'DATABASE_UNAVAILABLE');
   const valid = profile && await bcrypt.compare(input.password, profile.password_hash);
   if (!valid) throw AppError('Email or password is incorrect.', 401, 'INVALID_CREDENTIALS');
+  if (input.portal && profile.role !== input.portal) {
+    const registeredAs = profile.role === 'donor_center' ? 'donor centre' : profile.role;
+    throw AppError(`This account is registered as a ${registeredAs}. Please use the ${registeredAs} portal.`, 403, 'PORTAL_MISMATCH');
+  }
   const session = await createSession(profile.id);
   return authResponse(res, { ...session, user: profile });
 }));
